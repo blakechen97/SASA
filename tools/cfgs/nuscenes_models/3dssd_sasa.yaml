@@ -1,0 +1,135 @@
+CLASS_NAMES: ['car','truck', 'construction_vehicle', 'bus', 'trailer',
+              'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone']
+
+DATA_CONFIG:
+    _BASE_CONFIG_: cfgs/dataset_configs/nuscenes_point.yaml
+    MAX_SWEEPS: 10
+    PRED_VELOCITY: True
+
+    DATA_PROCESSOR:
+        - NAME: mask_points_and_boxes_outside_range
+          REMOVE_OUTSIDE_BOXES: True
+
+        - NAME: shuffle_points
+          SHUFFLE_ENABLED: {
+            'train': True,
+            'test': True
+          }
+
+        - NAME: sample_points_by_voxel
+          VOXEL_SIZE: [0.1, 0.1, 0.1]
+          KEY_FRAME_NUMBER_OF_VOXELS: {
+            'train': 16384,
+            'test': 16384
+          }
+          OTHER_FRAME_NUMBER_OF_VOXELS: {
+            'train': 49152,
+            'test': 49152
+          }
+
+MODEL:
+    NAME: 3DSSD
+
+    BACKBONE_3D:
+        NAME: PointNet2FSMSG
+        SA_CONFIG:
+            NPOINT_LIST: [[4096, 12288], [1024, 1024, 2048], [1024, 2048], [1024, 1024]]
+            SAMPLE_RANGE_LIST: [[[0, 16384], [16384, 65536]], [[0, 4096], [0, 4096], [4096, 16384]], [[0, 4096], [0, 4096]], [[0, 3072], [0, 3072]]]
+            SAMPLE_METHOD_LIST: [['d-fps', 'd-fps'], ['s-fps', 'd-fps', 'd-fps'], ['s-fps', 'd-fps'], ['s-fps', 'd-fps']]
+            RADIUS: [[0.5, 1.0], [1.0, 2.0], [2.0, 4.0], [4.0, 8.0]]
+            NSAMPLE: [[32, 64], [32, 64], [32, 64], [32, 64]]
+            MLPS: [[[32, 58, 64], [32, 64, 64]],
+                   [[64, 96, 128], [64, 128, 128]],
+                   [[128, 196, 256], [128, 256, 256]],
+                   [[256, 256, 384], [256, 384, 384]]]
+            AGGREGATION_MLPS: [[64], [128], [256], [384]]
+            CONFIDENCE_MLPS: [[32], [64], [128], []]
+            WEIGHT_GAMMA: 1.0
+            DILATED_RADIUS_GROUP: True
+
+    POINT_HEAD:
+        NAME: PointHeadVote
+        CLASS_AGNOSTIC: False
+        USE_BN: True
+
+        SAMPLE_RANGE: [ 0, 1024 ]
+        VOTE_CONFIG:
+            VOTE_FC: [ 256, 256 ]
+            MAX_TRANSLATION_RANGE: [ 8.0, 8.0, 4.0 ]
+
+        SA_CONFIG:
+            RADIUS: [ 4.0, 8.0 ]
+            NSAMPLE: [ 48, 72 ]
+            MLPS: [ [ 384, 512, 512 ],
+                    [ 384, 512, 1024 ] ]
+
+        SHARED_FC: [ 768, 512 ]
+        CLS_FC: [ 256 ]
+        REG_FC: [ 256 ]
+        DP_RATIO: 0.0
+
+        TARGET_CONFIG:
+            VOTE_EXTRA_WIDTH: [0.1, 0.1, 0.1]
+            ASSIGN_METHOD: mask
+            GT_CENTRAL_RADIUS: 15.0
+            BOX_CODER: PointBinResidualCoder
+            BOX_CODER_CONFIG: {
+                'use_mean_size': False,
+                'angle_bin_num': 12,
+                'pred_velo': True
+            }
+
+        LOSS_CONFIG:
+            LOSS_CLS: WeightedBinaryCrossEntropyWithCenterness
+            LOSS_REG: WeightedSmoothL1Loss
+            LOSS_SASA_CONFIG: {
+                'set_ignore_flag': True,
+                'extra_width': [1.0, 1.0, 1.0],
+                'layer_weights': [0.001, 0.01, 0.1, 0]
+            }
+            AXIS_ALIGNED_IOU_LOSS_REGULARIZATION: False
+            CORNER_LOSS_REGULARIZATION: False
+            LOSS_WEIGHTS: {
+                'vote_reg_weight': 1.0,
+                'point_cls_weight': 1.0,
+                'point_offset_reg_weight': 1.0,
+                'point_angle_cls_weight': 1.0,
+                'point_angle_reg_weight': 1.0,
+                'point_iou_reg_weight': 1.0
+            }
+
+    POST_PROCESSING:
+        RECALL_THRESH_LIST: [0.3, 0.5, 0.7]
+        SCORE_THRESH: 0.1
+        OUTPUT_RAW_SCORE: False
+
+        EVAL_METRIC: kitti
+
+        NMS_CONFIG:
+            MULTI_CLASSES_NMS: False
+            NMS_TYPE: nms_gpu
+            NMS_THRESH: 0.2
+            NMS_PRE_MAXSIZE: 4096
+            NMS_POST_MAXSIZE: 500
+
+
+OPTIMIZATION:
+    BATCH_SIZE_PER_GPU: 2
+    NUM_EPOCHS: 20
+
+    OPTIMIZER: adam_onecycle
+    LR: 0.002
+    WEIGHT_DECAY: 0.01
+    MOMENTUM: 0.9
+
+    MOMS: [0.95, 0.85]
+    PCT_START: 0.4
+    DIV_FACTOR: 10
+    DECAY_STEP_LIST: [35, 45]
+    LR_DECAY: 0.1
+    LR_CLIP: 0.0000001
+
+    LR_WARMUP: False
+    WARMUP_EPOCH: 1
+
+    GRAD_NORM_CLIP: 10
