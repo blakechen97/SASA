@@ -61,7 +61,7 @@ python setup.py develop
 ```
 
 ### Data Preparation
-a. prepare datasets.
+a. Prepare datasets.
 ```
 SASA
 ├── data
@@ -81,7 +81,7 @@ SASA
 ├── tools
 ```
 
-b. generate data infos.
+b. Generate data infos.
 ```shell
 # KITTI dataset
 python -m pcdet.datasets.kitti.kitti_dataset create_kitti_infos tools/cfgs/dataset_configs/kitti_dataset.yaml
